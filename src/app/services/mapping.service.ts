@@ -78,7 +78,11 @@ export class MappingService {
   }
 
   matchColumns(headers: string[], customTargetHeaders?: string[]): MappedColumn[] {
-    const targetCols = (customTargetHeaders && customTargetHeaders.length > 0) ? customTargetHeaders : ERP_COLUMNS;
+    const parentCols = ["Father Name", "Mother Name", "Father Mobile Number", "Mother Mobile Number"];
+    const targetCols = (customTargetHeaders && customTargetHeaders.length > 0)
+      ? Array.from(new Set([...customTargetHeaders, ...parentCols]))
+      : ERP_COLUMNS;
+
     const result: MappedColumn[] = [];
 
     const targetObjects = targetCols.map(col => ({

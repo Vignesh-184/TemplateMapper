@@ -221,10 +221,31 @@ export class ExcelProcessingService {
       if (rowNumber === 1) return;
 
       const rowData: Record<string, string> = {};
-      
+      let scanFatherName = '';
+      let scanMotherName = '';
+      let scanFatherMobile = '';
+      let scanMotherMobile = '';
+      let scanMobile = '';
+
       row.eachCell((cell, colNumber) => {
         const header = headers[colNumber];
         if (!header) return;
+
+        const valText = cell.text ? cell.text.trim() : String(cell.value || '').trim();
+        const normH = header.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // Unmapped row cell scanning for fallback
+        if (normH.includes('father') && !normH.includes('phone') && !normH.includes('mobile')) {
+          if (valText && valText.toLowerCase() !== 'father') scanFatherName = valText;
+        } else if (normH.includes('mother') && !normH.includes('phone') && !normH.includes('mobile')) {
+          if (valText && valText.toLowerCase() !== 'mother') scanMotherName = valText;
+        } else if (normH.includes('father') && (normH.includes('mobile') || normH.includes('phone'))) {
+          if (valText && /^\d{10}$/.test(valText)) scanFatherMobile = valText;
+        } else if (normH.includes('mother') && (normH.includes('mobile') || normH.includes('phone'))) {
+          if (valText && /^\d{10}$/.test(valText)) scanMotherMobile = valText;
+        } else if (normH.includes('mobile') || normH.includes('phone') || normH.includes('contact')) {
+          if (valText && /^\d{10}$/.test(valText)) scanMobile = valText;
+        }
 
         const mapping = mappings.find(m => m.originalHeader === header);
         if (mapping && mapping.mappedErpColumn) {
@@ -238,7 +259,7 @@ export class ExcelProcessingService {
           } else if (normCol.includes('bloodgroup') || normCol.includes('blood') || normCol === 'bg') {
             formattedValue = formatBloodGroup(cell.text ? cell.text : String(cell.value || ''));
           } else {
-            formattedValue = cell.text ? cell.text.trim() : String(cell.value || '').trim();
+            formattedValue = valText;
           }
 
           rowData[colName] = formattedValue;
@@ -262,42 +283,45 @@ export class ExcelProcessingService {
         return (rowData[key] || rowData[cleanHeaderName(key)] || "").trim();
       };
 
-      // 1. Mobile Number resolution (First priority)
+      // 1. Mobile Number resolution
       const mobCol = mobileKey || "Mobile Number";
       const fMobCol = fatherMobileKey || "Father Mobile Number";
       const mMobCol = motherMobileKey || "Mother Mobile Number";
 
       if (!getVal(mobCol)) {
-        if (getVal(fMobCol)) {
-          setVal(mobCol, getVal(fMobCol));
-        } else if (getVal(mMobCol)) {
-          setVal(mobCol, getVal(mMobCol));
+        const foundMobile = getVal(fMobCol) || scanFatherMobile || getVal(mMobCol) || scanMotherMobile || scanMobile;
+        if (foundMobile) {
+          setVal(mobCol, foundMobile);
         }
       }
 
-      // 2. Contact Person Name & Relationship resolution (Second priority)
+      // 2. Contact Person Name & Relationship resolution
       const cpCol = contactPersonKey || "Contact Person Name";
       const relCol = relationshipKey || "Relationship";
       const fNameCol = fatherNameKey || "Father Name";
       const mNameCol = motherNameKey || "Mother Name";
 
-      const rawFather = (getVal(fNameCol) || (cpCol !== fNameCol ? getVal(cpCol) : "") || "").trim();
-      const rawMother = (getVal(mNameCol) || "").trim();
+      const rawFather = getVal(fNameCol) || scanFatherName || (cpCol !== fNameCol ? getVal(cpCol) : "");
+      const rawMother = getVal(mNameCol) || scanMotherName;
 
-      if (rawFather && rawFather.toLowerCase() !== "father") {
-        setVal(cpCol, rawFather);
+      const isRealName = (name: string) => name && name.trim().toLowerCase() !== "father" && name.trim().toLowerCase() !== "mother";
+
+      if (isRealName(rawFather)) {
+        setVal(cpCol, rawFather.trim());
         setVal(relCol, "Father");
-      } else if (rawMother && rawMother.toLowerCase() !== "mother") {
-        setVal(cpCol, rawMother);
+      } else if (isRealName(rawMother)) {
+        setVal(cpCol, rawMother.trim());
         setVal(relCol, "Mother");
+      } else if (isRealName(getVal(cpCol))) {
+        setVal(relCol, "Father");
       } else {
-        if (rawFather) {
-          setVal(cpCol, rawFather);
+        if (rawFather.trim()) {
+          setVal(cpCol, rawFather.trim());
           setVal(relCol, "Father");
-        } else if (rawMother) {
-          setVal(cpCol, rawMother);
+        } else if (rawMother.trim()) {
+          setVal(cpCol, rawMother.trim());
           setVal(relCol, "Mother");
-        } else if (getVal(mMobCol) && !getVal(fMobCol)) {
+        } else if ((getVal(mMobCol) || scanMotherMobile) && (!getVal(fMobCol) && !scanFatherMobile)) {
           setVal(cpCol, "Mother");
           setVal(relCol, "Mother");
         } else {
@@ -306,9 +330,9 @@ export class ExcelProcessingService {
         }
       }
 
-      // 3. Email resolution with @netkampuss.com auto-generation (Third priority)
+      // 3. Email resolution with @netkampuss.com auto-generation
       const emCol = emailKey || "Email";
-      const mobileVal = getVal(mobCol);
+      const mobileVal = getVal(mobCol) || scanMobile;
       const currentEmail = getVal(emCol);
 
       if ((!currentEmail || !currentEmail.includes('@')) && mobileVal) {
@@ -322,8 +346,7 @@ export class ExcelProcessingService {
         }
       }
 
-      // 4. Default preset values for standard fields (Fourth priority)
-      // Force Primary Address to "Yes" if empty or if it contains a row number (1..n)
+      // 4. Default preset values for standard fields
       const primaryAddrCol = primaryAddressKey || "Primary Address (Yes/No)";
       const currentPrimaryAddr = getVal(primaryAddrCol);
       if (!currentPrimaryAddr || /^\d+$/.test(currentPrimaryAddr) || currentPrimaryAddr.toLowerCase() !== "no") {
