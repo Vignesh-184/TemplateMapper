@@ -73,7 +73,7 @@ export class PreviewComponent implements OnInit {
     if (mappings && file) {
       const parsedMappings = JSON.parse(mappings);
       
-      this.excelService.processExcelFile(file, parsedMappings).then(res => {
+      this.excelService.processExcelFile(file, parsedMappings, targetHeaders).then(res => {
         this.transformedData.set(res.transformedData || []);
         this.validationErrors.set(res.validationErrors || []);
       }).catch(err => console.error("Transform failed", err));

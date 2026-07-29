@@ -158,7 +158,8 @@ export class ExcelProcessingService {
 
   async processExcelFile(
     file: File,
-    mappings: MappedColumn[]
+    mappings: MappedColumn[],
+    targetHeaders?: string[]
   ): Promise<{ transformedData: any[]; validationErrors: ValidationResult[] }> {
     const workbook = new ExcelJS.Workbook();
     const arrayBuffer = await file.arrayBuffer();
@@ -176,6 +177,37 @@ export class ExcelProcessingService {
     headerRow.eachCell((cell, colNumber) => {
       headers[colNumber] = cell.text.trim();
     });
+
+    const activeTargetCols = (targetHeaders && targetHeaders.length > 0) 
+      ? targetHeaders 
+      : ERP_COLUMNS;
+
+    const findTargetKey = (pattern: RegExp): string | undefined => {
+      const matchInTarget = activeTargetCols.find(k => pattern.test(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
+      if (matchInTarget) return matchInTarget;
+
+      const matchInMappings = mappings.find(m => m.mappedErpColumn && pattern.test(m.mappedErpColumn.toLowerCase().replace(/[^a-z0-9]/g, '')));
+      if (matchInMappings && matchInMappings.mappedErpColumn) return matchInMappings.mappedErpColumn;
+
+      return ERP_COLUMNS.find(k => pattern.test(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    };
+
+    const mobileKey = findTargetKey(/mobilenumber|phone|mobile|contactnumber/);
+    const fatherMobileKey = findTargetKey(/fathermobile|fatherphone/);
+    const motherMobileKey = findTargetKey(/mothermobile|motherphone/);
+    const contactPersonKey = findTargetKey(/contactpersonname|contactperson|guardianname/);
+    const relationshipKey = findTargetKey(/relationship|relation/);
+    const fatherNameKey = findTargetKey(/fathername|father/);
+    const motherNameKey = findTargetKey(/mothername|mother/);
+    const emailKey = findTargetKey(/email|emailaddress/);
+    const academicYearKey = findTargetKey(/academicyear/);
+    const isCurrentAcademicYearKey = findTargetKey(/iscurrentacademicyear/);
+    const addressTypeKey = findTargetKey(/addresstype/);
+    const countryKey = findTargetKey(/country/);
+    const primaryAddressKey = findTargetKey(/primaryaddress/);
+    const primaryContactPersonKey = findTargetKey(/primarycontactperson/);
+    const photoUrlKey = findTargetKey(/photourl/);
+    const admKey = findTargetKey(/admissionnumber|admissionno|admno/);
 
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
@@ -201,84 +233,81 @@ export class ExcelProcessingService {
         }
       });
 
-      const getTargetKey = (pattern: RegExp): string | undefined => {
-        return Object.keys(rowData).find(k => pattern.test(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
-      };
-
       // 1. Mobile Number fallback
-      const mobileKey = getTargetKey(/mobilenumber|phone|mobile|contactnumber/) || "Mobile Number";
-      const fatherMobileKey = getTargetKey(/fathermobile|fatherphone/);
-      const motherMobileKey = getTargetKey(/mothermobile|motherphone/);
+      const mobCol = mobileKey || "Mobile Number";
+      const fMobCol = fatherMobileKey || "Father Mobile Number";
+      const mMobCol = motherMobileKey || "Mother Mobile Number";
 
-      if (!rowData[mobileKey]) {
-        if (fatherMobileKey && rowData[fatherMobileKey]) {
-          rowData[mobileKey] = rowData[fatherMobileKey];
-        } else if (motherMobileKey && rowData[motherMobileKey]) {
-          rowData[mobileKey] = rowData[motherMobileKey];
+      if (!rowData[mobCol]) {
+        if (rowData[fMobCol]) {
+          rowData[mobCol] = rowData[fMobCol];
+        } else if (rowData[mMobCol]) {
+          rowData[mobCol] = rowData[mMobCol];
         }
       }
 
       // 2. Contact Person Name & Relationship resolution
-      const contactPersonKey = getTargetKey(/contactpersonname|contactperson|guardianname/) || "Contact Person Name";
-      const relationshipKey = getTargetKey(/relationship|relation/) || "Relationship";
-      const fatherNameKey = getTargetKey(/fathername|father/);
-      const motherNameKey = getTargetKey(/mothername|mother/);
+      const cpCol = contactPersonKey || "Contact Person Name";
+      const relCol = relationshipKey || "Relationship";
+      const fNameCol = fatherNameKey || "Father Name";
+      const mNameCol = motherNameKey || "Mother Name";
 
-      const rawFather = (fatherNameKey && rowData[fatherNameKey]) || rowData[contactPersonKey] || "";
-      const rawMother = (motherNameKey && rowData[motherNameKey]) || "";
+      const rawFather = (rowData[fNameCol] || (cpCol !== fNameCol ? rowData[cpCol] : "") || "").trim();
+      const rawMother = (rowData[mNameCol] || "").trim();
 
-      if (rawFather.trim() && rawFather.trim().toLowerCase() !== "father") {
-        rowData[contactPersonKey] = rawFather.trim();
-        rowData[relationshipKey] = "Father";
-      } else if (rawMother.trim() && rawMother.trim().toLowerCase() !== "mother") {
-        rowData[contactPersonKey] = rawMother.trim();
-        rowData[relationshipKey] = "Mother";
+      if (rawFather && rawFather.toLowerCase() !== "father") {
+        rowData[cpCol] = rawFather;
+        rowData[relCol] = "Father";
+      } else if (rawMother && rawMother.toLowerCase() !== "mother") {
+        rowData[cpCol] = rawMother;
+        rowData[relCol] = "Mother";
       } else {
-        if (rawFather.trim()) {
-          rowData[contactPersonKey] = rawFather.trim();
-          rowData[relationshipKey] = "Father";
-        } else if (rawMother.trim()) {
-          rowData[contactPersonKey] = rawMother.trim();
-          rowData[relationshipKey] = "Mother";
-        } else if (motherMobileKey && rowData[motherMobileKey] && (!fatherMobileKey || !rowData[fatherMobileKey])) {
-          rowData[contactPersonKey] = "Mother";
-          rowData[relationshipKey] = "Mother";
+        if (rawFather) {
+          rowData[cpCol] = rawFather;
+          rowData[relCol] = "Father";
+        } else if (rawMother) {
+          rowData[cpCol] = rawMother;
+          rowData[relCol] = "Mother";
+        } else if (rowData[mMobCol] && !rowData[fMobCol]) {
+          rowData[cpCol] = "Mother";
+          rowData[relCol] = "Mother";
         } else {
-          rowData[contactPersonKey] = "Father";
-          rowData[relationshipKey] = "Father";
+          rowData[cpCol] = "Father";
+          rowData[relCol] = "Father";
         }
       }
 
       // 3. Email resolution with @netkampuss.com auto-generation
-      const emailKey = getTargetKey(/email|emailaddress/) || "Email";
-      const mobileVal = rowData[mobileKey] || "";
-      if (!rowData[emailKey] && mobileVal) {
+      const emCol = emailKey || "Email";
+      const mobileVal = rowData[mobCol] || "";
+      if (!rowData[emCol] && mobileVal) {
         const baseEmail = `${mobileVal}@netkampuss.com`;
         if (!mobileEmailCount[mobileVal]) {
           mobileEmailCount[mobileVal] = 0;
-          rowData[emailKey] = baseEmail;
+          rowData[emCol] = baseEmail;
         } else {
           mobileEmailCount[mobileVal]++;
-          rowData[emailKey] = `${mobileVal}_${mobileEmailCount[mobileVal]}@netkampuss.com`;
+          rowData[emCol] = `${mobileVal}_${mobileEmailCount[mobileVal]}@netkampuss.com`;
         }
       }
 
-      // 4. Default preset values for standard fields if column is present or mapped
-      const setIfKeyExistsOrDefault = (pattern: RegExp, defaultKey: string, defaultValue: string) => {
-        const key = getTargetKey(pattern) || defaultKey;
-        if (!rowData[key]) {
-          rowData[key] = defaultValue;
+      // 4. Default preset values for standard fields if column is present in target or mapped
+      const setKeyDefault = (resolvedKey: string | undefined, fallbackKey: string, defaultValue: string) => {
+        const keyToUse = resolvedKey || fallbackKey;
+        if (!rowData[keyToUse]) {
+          rowData[keyToUse] = defaultValue;
         }
       };
 
-      setIfKeyExistsOrDefault(/academicyear/, "Academic Year", "2026-2027");
-      setIfKeyExistsOrDefault(/iscurrentacademicyear/, "Is Current Academic Year (Yes/No)", "Yes");
-      setIfKeyExistsOrDefault(/addresstype/, "Address Type", "Permanent");
-      setIfKeyExistsOrDefault(/country/, "Country", "India");
-      setIfKeyExistsOrDefault(/primaryaddress/, "Primary Address (Yes/No)", "Yes");
-      setIfKeyExistsOrDefault(/primarycontactperson/, "Primary Contact Person (Yes/No)", "Yes");
+      setKeyDefault(academicYearKey, "Academic Year", "2026-2027");
+      setKeyDefault(isCurrentAcademicYearKey, "Is Current Academic Year (Yes/No)", "Yes");
+      setKeyDefault(addressTypeKey, "Address Type", "Permanent");
+      setKeyDefault(countryKey, "Country", "India");
+      setKeyDefault(primaryAddressKey, "Primary Address (Yes/No)", "Yes");
+      setKeyDefault(primaryContactPersonKey, "Primary Contact Person (Yes/No)", "Yes");
 
-      if (!rowData["PhotoURL"]) rowData["PhotoURL"] = "";
+      const photoCol = photoUrlKey || "PhotoURL";
+      if (!rowData[photoCol]) rowData[photoCol] = "";
 
       transformedData.push(rowData);
 
@@ -291,12 +320,12 @@ export class ExcelProcessingService {
         });
       }
 
-      const admKey = getTargetKey(/admissionnumber|admissionno|admno/) || "Admission Number";
-      if (rowData[admKey]) {
-        if (admissionNumbers.has(rowData[admKey])) {
-          rowErrors.push({ column: admKey, message: "Duplicate Admission Number" });
+      const admissionCol = admKey || "Admission Number";
+      if (rowData[admissionCol]) {
+        if (admissionNumbers.has(rowData[admissionCol])) {
+          rowErrors.push({ column: admissionCol, message: "Duplicate Admission Number" });
         } else {
-          admissionNumbers.add(rowData[admKey]);
+          admissionNumbers.add(rowData[admissionCol]);
         }
       }
 
