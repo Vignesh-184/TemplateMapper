@@ -36,6 +36,11 @@ export interface ValidationResult {
   errors: { column: string; message: string }[];
 }
 
+export const cleanHeaderName = (header: string): string => {
+  if (!header) return '';
+  return header.trim().replace(/\s*\*+$/, '').trim();
+};
+
 export function formatDateOfBirth(cell: ExcelJS.Cell): string {
   if (!cell || cell.value === null || cell.value === undefined) return '';
   
@@ -150,10 +155,13 @@ export class ExcelProcessingService {
     const headers: string[] = [];
     
     headerRow.eachCell((cell, colNumber) => {
-      headers[colNumber] = cell.text.trim();
+      const text = cleanHeaderName(cell.text);
+      if (text) {
+        headers.push(text);
+      }
     });
     
-    return headers.filter(Boolean);
+    return headers;
   }
 
   async processExcelFile(
@@ -179,15 +187,15 @@ export class ExcelProcessingService {
     });
 
     const activeTargetCols = (targetHeaders && targetHeaders.length > 0) 
-      ? targetHeaders 
-      : ERP_COLUMNS;
+      ? targetHeaders.map(cleanHeaderName)
+      : ERP_COLUMNS.map(cleanHeaderName);
 
     const findTargetKey = (pattern: RegExp): string | undefined => {
       const matchInTarget = activeTargetCols.find(k => pattern.test(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
       if (matchInTarget) return matchInTarget;
 
-      const matchInMappings = mappings.find(m => m.mappedErpColumn && pattern.test(m.mappedErpColumn.toLowerCase().replace(/[^a-z0-9]/g, '')));
-      if (matchInMappings && matchInMappings.mappedErpColumn) return matchInMappings.mappedErpColumn;
+      const matchInMappings = mappings.find(m => m.mappedErpColumn && pattern.test(cleanHeaderName(m.mappedErpColumn).toLowerCase().replace(/[^a-z0-9]/g, '')));
+      if (matchInMappings && matchInMappings.mappedErpColumn) return cleanHeaderName(matchInMappings.mappedErpColumn);
 
       return ERP_COLUMNS.find(k => pattern.test(k.toLowerCase().replace(/[^a-z0-9]/g, '')));
     };
@@ -220,29 +228,50 @@ export class ExcelProcessingService {
 
         const mapping = mappings.find(m => m.originalHeader === header);
         if (mapping && mapping.mappedErpColumn) {
-          const colName = mapping.mappedErpColumn;
+          const rawColName = mapping.mappedErpColumn;
+          const colName = cleanHeaderName(rawColName);
           const normCol = colName.toLowerCase().replace(/[^a-z0-9]/g, '');
           
+          let formattedValue = '';
           if (normCol.includes('dob') || normCol.includes('dateofbirth') || normCol.includes('birthdate')) {
-            rowData[colName] = formatDateOfBirth(cell);
+            formattedValue = formatDateOfBirth(cell);
           } else if (normCol.includes('bloodgroup') || normCol.includes('blood') || normCol === 'bg') {
-            rowData[colName] = formatBloodGroup(cell.text ? cell.text : String(cell.value || ''));
+            formattedValue = formatBloodGroup(cell.text ? cell.text : String(cell.value || ''));
           } else {
-            rowData[colName] = cell.text ? cell.text.trim() : String(cell.value || '').trim();
+            formattedValue = cell.text ? cell.text.trim() : String(cell.value || '').trim();
+          }
+
+          rowData[colName] = formattedValue;
+          if (rawColName !== colName) {
+            rowData[rawColName] = formattedValue;
           }
         }
       });
+
+      const setVal = (key: string | undefined, val: string) => {
+        if (!key) return;
+        rowData[key] = val;
+        const cleanKey = cleanHeaderName(key);
+        if (cleanKey !== key) {
+          rowData[cleanKey] = val;
+        }
+      };
+
+      const getVal = (key: string | undefined): string => {
+        if (!key) return "";
+        return (rowData[key] || rowData[cleanHeaderName(key)] || "").trim();
+      };
 
       // 1. Mobile Number fallback
       const mobCol = mobileKey || "Mobile Number";
       const fMobCol = fatherMobileKey || "Father Mobile Number";
       const mMobCol = motherMobileKey || "Mother Mobile Number";
 
-      if (!rowData[mobCol]) {
-        if (rowData[fMobCol]) {
-          rowData[mobCol] = rowData[fMobCol];
-        } else if (rowData[mMobCol]) {
-          rowData[mobCol] = rowData[mMobCol];
+      if (!getVal(mobCol)) {
+        if (getVal(fMobCol)) {
+          setVal(mobCol, getVal(fMobCol));
+        } else if (getVal(mMobCol)) {
+          setVal(mobCol, getVal(mMobCol));
         }
       }
 
@@ -252,50 +281,50 @@ export class ExcelProcessingService {
       const fNameCol = fatherNameKey || "Father Name";
       const mNameCol = motherNameKey || "Mother Name";
 
-      const rawFather = (rowData[fNameCol] || (cpCol !== fNameCol ? rowData[cpCol] : "") || "").trim();
-      const rawMother = (rowData[mNameCol] || "").trim();
+      const rawFather = (getVal(fNameCol) || (cpCol !== fNameCol ? getVal(cpCol) : "") || "").trim();
+      const rawMother = (getVal(mNameCol) || "").trim();
 
       if (rawFather && rawFather.toLowerCase() !== "father") {
-        rowData[cpCol] = rawFather;
-        rowData[relCol] = "Father";
+        setVal(cpCol, rawFather);
+        setVal(relCol, "Father");
       } else if (rawMother && rawMother.toLowerCase() !== "mother") {
-        rowData[cpCol] = rawMother;
-        rowData[relCol] = "Mother";
+        setVal(cpCol, rawMother);
+        setVal(relCol, "Mother");
       } else {
         if (rawFather) {
-          rowData[cpCol] = rawFather;
-          rowData[relCol] = "Father";
+          setVal(cpCol, rawFather);
+          setVal(relCol, "Father");
         } else if (rawMother) {
-          rowData[cpCol] = rawMother;
-          rowData[relCol] = "Mother";
-        } else if (rowData[mMobCol] && !rowData[fMobCol]) {
-          rowData[cpCol] = "Mother";
-          rowData[relCol] = "Mother";
+          setVal(cpCol, rawMother);
+          setVal(relCol, "Mother");
+        } else if (getVal(mMobCol) && !getVal(fMobCol)) {
+          setVal(cpCol, "Mother");
+          setVal(relCol, "Mother");
         } else {
-          rowData[cpCol] = "Father";
-          rowData[relCol] = "Father";
+          setVal(cpCol, "Father");
+          setVal(relCol, "Father");
         }
       }
 
       // 3. Email resolution with @netkampuss.com auto-generation
       const emCol = emailKey || "Email";
-      const mobileVal = rowData[mobCol] || "";
-      if (!rowData[emCol] && mobileVal) {
+      const mobileVal = getVal(mobCol);
+      if (!getVal(emCol) && mobileVal) {
         const baseEmail = `${mobileVal}@netkampuss.com`;
         if (!mobileEmailCount[mobileVal]) {
           mobileEmailCount[mobileVal] = 0;
-          rowData[emCol] = baseEmail;
+          setVal(emCol, baseEmail);
         } else {
           mobileEmailCount[mobileVal]++;
-          rowData[emCol] = `${mobileVal}_${mobileEmailCount[mobileVal]}@netkampuss.com`;
+          setVal(emCol, `${mobileVal}_${mobileEmailCount[mobileVal]}@netkampuss.com`);
         }
       }
 
       // 4. Default preset values for standard fields if column is present in target or mapped
       const setKeyDefault = (resolvedKey: string | undefined, fallbackKey: string, defaultValue: string) => {
         const keyToUse = resolvedKey || fallbackKey;
-        if (!rowData[keyToUse]) {
-          rowData[keyToUse] = defaultValue;
+        if (!getVal(keyToUse)) {
+          setVal(keyToUse, defaultValue);
         }
       };
 
@@ -307,7 +336,7 @@ export class ExcelProcessingService {
       setKeyDefault(primaryContactPersonKey, "Primary Contact Person (Yes/No)", "Yes");
 
       const photoCol = photoUrlKey || "PhotoURL";
-      if (!rowData[photoCol]) rowData[photoCol] = "";
+      if (!getVal(photoCol)) setVal(photoCol, "");
 
       transformedData.push(rowData);
 
@@ -321,11 +350,12 @@ export class ExcelProcessingService {
       }
 
       const admissionCol = admKey || "Admission Number";
-      if (rowData[admissionCol]) {
-        if (admissionNumbers.has(rowData[admissionCol])) {
+      const admVal = getVal(admissionCol);
+      if (admVal) {
+        if (admissionNumbers.has(admVal)) {
           rowErrors.push({ column: admissionCol, message: "Duplicate Admission Number" });
         } else {
-          admissionNumbers.add(rowData[admissionCol]);
+          admissionNumbers.add(admVal);
         }
       }
 
@@ -346,10 +376,9 @@ export class ExcelProcessingService {
       const worksheet = workbook.worksheets[0];
 
       const headerRow = worksheet.getRow(1);
-      const templateCols: string[] = [];
+      const rawTemplateCols: string[] = [];
       headerRow.eachCell((cell, colNumber) => {
-        const headerText = cell.text.trim().replace(/\s*\*$/, '');
-        templateCols[colNumber - 1] = headerText;
+        rawTemplateCols[colNumber - 1] = cell.text.trim();
       });
 
       const rowCount = worksheet.rowCount;
@@ -358,7 +387,11 @@ export class ExcelProcessingService {
       }
 
       transformedData.forEach(dataRow => {
-        const rowValues = templateCols.map(col => dataRow[col] || "");
+        const rowValues = rawTemplateCols.map(col => {
+          if (!col) return "";
+          const cleanCol = cleanHeaderName(col);
+          return dataRow[col] !== undefined ? dataRow[col] : (dataRow[cleanCol] !== undefined ? dataRow[cleanCol] : "");
+        });
         worksheet.addRow(rowValues);
       });
     } else {
@@ -370,11 +403,14 @@ export class ExcelProcessingService {
       
       worksheet.addRow(exportColumns.map(col => {
          const requiredCols = ["Admission Number", "First Name", "Email", "Mobile Number", "Academic Year", "Grade Name", "Section Name", "Is Current Academic Year (Yes/No)", "Address", "Address Type", "Country", "State", "City", "Pincode", "Contact Person Name", "Relationship"];
-         return requiredCols.includes(col) ? `${col} *` : col;
+         return requiredCols.includes(cleanHeaderName(col)) ? `${cleanHeaderName(col)} *` : cleanHeaderName(col);
       }));
 
       transformedData.forEach(dataRow => {
-        const rowValues = exportColumns.map(col => dataRow[col] || "");
+        const rowValues = exportColumns.map(col => {
+          const cleanCol = cleanHeaderName(col);
+          return dataRow[col] !== undefined ? dataRow[col] : (dataRow[cleanCol] !== undefined ? dataRow[cleanCol] : "");
+        });
         worksheet.addRow(rowValues);
       });
     }
