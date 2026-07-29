@@ -1,18 +1,19 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { FileUploadModule } from 'primeng/fileupload';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { DataService } from '../../services/data.service';
+import { FormsModule } from '@angular/forms';
+import { AppSettings, DataService } from '../../services/data.service';
 import { ExcelProcessingService } from '../../services/excel-processing.service';
 import { MappingService, ERP_COLUMNS } from '../../services/mapping.service';
 
 @Component({
   selector: 'app-upload',
   standalone: true,
-  imports: [CommonModule, FileUploadModule, ToastModule, HttpClientModule],
+  imports: [CommonModule, FileUploadModule, ToastModule, HttpClientModule, FormsModule],
   providers: [MessageService],
   template: `
     <div class="max-w-5xl mx-auto space-y-8">
@@ -108,6 +109,64 @@ import { MappingService, ERP_COLUMNS } from '../../services/mapping.service';
         </div>
       </div>
 
+      <!-- Customizable Transformation Preset Settings Card -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div class="flex items-center space-x-2">
+            <i class="pi pi-cog text-indigo-600 text-lg"></i>
+            <h3 class="text-base font-bold text-slate-800">Global Transformation Settings</h3>
+          </div>
+          <span class="text-xs text-slate-400">Configure default values for any user or organization</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Email Suffix / Domain</label>
+            <div class="flex items-center space-x-1">
+              <span class="text-slate-400 font-bold">@</span>
+              <input 
+                type="text" 
+                [(ngModel)]="settings.emailDomain" 
+                (change)="updateSettings()"
+                placeholder="netkampuss.com" 
+                class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none text-xs">
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Default Academic Year</label>
+            <input 
+              type="text" 
+              [(ngModel)]="settings.academicYear" 
+              (change)="updateSettings()"
+              placeholder="2026-2027" 
+              class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none text-xs">
+          </div>
+
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Default Country</label>
+            <input 
+              type="text" 
+              [(ngModel)]="settings.country" 
+              (change)="updateSettings()"
+              placeholder="India" 
+              class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none text-xs">
+          </div>
+
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Date Format</label>
+            <select 
+              [(ngModel)]="settings.dateFormat" 
+              (change)="updateSettings()"
+              class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none text-xs bg-white">
+              <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 20/09/2000)</option>
+              <option value="MM/DD/YYYY">MM/DD/YYYY (e.g. 09/20/2000)</option>
+              <option value="YYYY-MM-DD">YYYY-MM-DD (e.g. 2000-09-20)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <!-- Action Footer -->
       <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
         <div class="text-sm text-slate-500">
@@ -141,7 +200,7 @@ import { MappingService, ERP_COLUMNS } from '../../services/mapping.service';
     </div>
   `
 })
-export class UploadComponent {
+export class UploadComponent implements OnInit {
   private router = inject(Router);
   private messageService = inject(MessageService);
   private dataService = inject(DataService);
@@ -156,6 +215,22 @@ export class UploadComponent {
 
   isUploading = signal(false);
   uploadProgress = signal(0);
+
+  settings: AppSettings = {
+    emailDomain: 'netkampuss.com',
+    academicYear: '2026-2027',
+    country: 'India',
+    dateFormat: 'DD/MM/YYYY',
+    addressType: 'Permanent'
+  };
+
+  ngOnInit() {
+    this.settings = this.dataService.getSettings();
+  }
+
+  updateSettings() {
+    this.dataService.saveSettings(this.settings);
+  }
 
   onTemplateSelected(event: any) {
     const file = event.target.files[0];

@@ -1,7 +1,8 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import * as ExcelJS from 'exceljs';
 import { z } from 'zod';
 import { ERP_COLUMNS, MappedColumn } from './mapping.service';
+import { DataService } from './data.service';
 
 export const erpRowSchema = z.object({
   "Admission Number": z.string().min(1, "Required"),
@@ -41,7 +42,7 @@ export const cleanHeaderName = (header: string): string => {
   return header.trim().replace(/\s*\*+$/, '').trim();
 };
 
-export function formatDateOfBirth(cell: ExcelJS.Cell): string {
+export function formatDateOfBirth(cell: ExcelJS.Cell, formatPattern: string = 'DD/MM/YYYY'): string {
   if (!cell || cell.value === null || cell.value === undefined) return '';
   
   let val: any = cell.value;
@@ -50,23 +51,27 @@ export function formatDateOfBirth(cell: ExcelJS.Cell): string {
     val = val.result;
   }
 
+  let dateObj: Date | null = null;
+
   if (val instanceof Date) {
     if (!isNaN(val.getTime())) {
-      const day = String(val.getDate()).padStart(2, '0');
-      const month = String(val.getMonth() + 1).padStart(2, '0');
-      const year = val.getFullYear();
-      return `${day}/${month}/${year}`;
+      dateObj = val;
+    }
+  } else if (typeof val === 'number' && val > 1000) {
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    if (!isNaN(d.getTime())) {
+      dateObj = d;
     }
   }
 
-  if (typeof val === 'number' && val > 1000) {
-    const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
-    if (!isNaN(dateObj.getTime())) {
-      const day = String(dateObj.getUTCDate()).padStart(2, '0');
-      const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-      const year = dateObj.getUTCFullYear();
-      return `${day}/${month}/${year}`;
-    }
+  if (dateObj) {
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const year = dateObj.getFullYear();
+
+    if (formatPattern === 'MM/DD/YYYY') return `${month}/${day}/${year}`;
+    if (formatPattern === 'YYYY-MM-DD') return `${year}-${month}-${day}`;
+    return `${day}/${month}/${year}`;
   }
 
   const rawText = cell.text ? cell.text.trim() : String(val).trim();
@@ -77,6 +82,9 @@ export function formatDateOfBirth(cell: ExcelJS.Cell): string {
     const yyyy = isoMatch[1];
     const mm = isoMatch[2].padStart(2, '0');
     const dd = isoMatch[3].padStart(2, '0');
+
+    if (formatPattern === 'MM/DD/YYYY') return `${mm}/${dd}/${yyyy}`;
+    if (formatPattern === 'YYYY-MM-DD') return `${yyyy}-${mm}-${dd}`;
     return `${dd}/${mm}/${yyyy}`;
   }
 
@@ -85,6 +93,9 @@ export function formatDateOfBirth(cell: ExcelJS.Cell): string {
     const dd = dmyMatch[1].padStart(2, '0');
     const mm = dmyMatch[2].padStart(2, '0');
     const yyyy = dmyMatch[3];
+
+    if (formatPattern === 'MM/DD/YYYY') return `${mm}/${dd}/${yyyy}`;
+    if (formatPattern === 'YYYY-MM-DD') return `${yyyy}-${mm}-${dd}`;
     return `${dd}/${mm}/${yyyy}`;
   }
 
@@ -100,7 +111,10 @@ export function formatDateOfBirth(cell: ExcelJS.Cell): string {
     let yyyy = monthTextMatch[3];
     if (yyyy.length === 2) yyyy = '20' + yyyy;
     if (months[mStr]) {
-      return `${dd}/${months[mStr]}/${yyyy}`;
+      const mm = months[mStr];
+      if (formatPattern === 'MM/DD/YYYY') return `${mm}/${dd}/${yyyy}`;
+      if (formatPattern === 'YYYY-MM-DD') return `${yyyy}-${mm}-${dd}`;
+      return `${dd}/${mm}/${yyyy}`;
     }
   }
 
@@ -109,6 +123,9 @@ export function formatDateOfBirth(cell: ExcelJS.Cell): string {
     const day = String(parsedDate.getDate()).padStart(2, '0');
     const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
     const year = parsedDate.getFullYear();
+
+    if (formatPattern === 'MM/DD/YYYY') return `${month}/${day}/${year}`;
+    if (formatPattern === 'YYYY-MM-DD') return `${year}-${month}-${day}`;
     return `${day}/${month}/${year}`;
   }
 
@@ -144,6 +161,7 @@ export function formatBloodGroup(bg: string): string {
   providedIn: 'root'
 })
 export class ExcelProcessingService {
+  private dataService = inject(DataService);
   
   async extractHeaders(file: File): Promise<string[]> {
     const workbook = new ExcelJS.Workbook();
@@ -169,6 +187,13 @@ export class ExcelProcessingService {
     mappings: MappedColumn[],
     targetHeaders?: string[]
   ): Promise<{ transformedData: any[]; validationErrors: ValidationResult[] }> {
+    const settings = this.dataService.getSettings();
+    const emailDomain = (settings.emailDomain || 'netkampuss.com').replace(/^@/, '').trim();
+    const academicYearPreset = settings.academicYear || '2026-2027';
+    const countryPreset = settings.country || 'India';
+    const dateFormatPreset = settings.dateFormat || 'DD/MM/YYYY';
+    const addressTypePreset = settings.addressType || 'Permanent';
+
     const workbook = new ExcelJS.Workbook();
     const arrayBuffer = await file.arrayBuffer();
     await workbook.xlsx.load(arrayBuffer);
@@ -234,7 +259,6 @@ export class ExcelProcessingService {
         const valText = cell.text ? cell.text.trim() : String(cell.value || '').trim();
         const normH = header.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        // Unmapped row cell scanning for fallback
         if (normH.includes('father') && !normH.includes('phone') && !normH.includes('mobile')) {
           if (valText && valText.toLowerCase() !== 'father') scanFatherName = valText;
         } else if (normH.includes('mother') && !normH.includes('phone') && !normH.includes('mobile')) {
@@ -255,7 +279,7 @@ export class ExcelProcessingService {
           
           let formattedValue = '';
           if (normCol.includes('dob') || normCol.includes('dateofbirth') || normCol.includes('birthdate')) {
-            formattedValue = formatDateOfBirth(cell);
+            formattedValue = formatDateOfBirth(cell, dateFormatPreset);
           } else if (normCol.includes('bloodgroup') || normCol.includes('blood') || normCol === 'bg') {
             formattedValue = formatBloodGroup(cell.text ? cell.text : String(cell.value || ''));
           } else {
@@ -330,23 +354,23 @@ export class ExcelProcessingService {
         }
       }
 
-      // 3. Email resolution with @netkampuss.com auto-generation
+      // 3. Dynamic Email resolution with user-configured domain
       const emCol = emailKey || "Email";
       const mobileVal = getVal(mobCol) || scanMobile;
       const currentEmail = getVal(emCol);
 
-      if ((!currentEmail || !currentEmail.includes('@')) && mobileVal) {
-        const baseEmail = `${mobileVal}@netkampuss.com`;
+      if ((!currentEmail || !currentEmail.includes('@')) && mobileVal && emailDomain) {
+        const baseEmail = `${mobileVal}@${emailDomain}`;
         if (!mobileEmailCount[mobileVal]) {
           mobileEmailCount[mobileVal] = 0;
           setVal(emCol, baseEmail);
         } else {
           mobileEmailCount[mobileVal]++;
-          setVal(emCol, `${mobileVal}_${mobileEmailCount[mobileVal]}@netkampuss.com`);
+          setVal(emCol, `${mobileVal}_${mobileEmailCount[mobileVal]}@${emailDomain}`);
         }
       }
 
-      // 4. Default preset values for standard fields
+      // 4. Default preset values using AppSettings
       const primaryAddrCol = primaryAddressKey || "Primary Address (Yes/No)";
       const currentPrimaryAddr = getVal(primaryAddrCol);
       if (!currentPrimaryAddr || /^\d+$/.test(currentPrimaryAddr) || currentPrimaryAddr.toLowerCase() !== "no") {
@@ -366,10 +390,10 @@ export class ExcelProcessingService {
         }
       };
 
-      setKeyDefault(academicYearKey, "Academic Year", "2026-2027");
+      setKeyDefault(academicYearKey, "Academic Year", academicYearPreset);
       setKeyDefault(isCurrentAcademicYearKey, "Is Current Academic Year (Yes/No)", "Yes");
-      setKeyDefault(addressTypeKey, "Address Type", "Permanent");
-      setKeyDefault(countryKey, "Country", "India");
+      setKeyDefault(addressTypeKey, "Address Type", addressTypePreset);
+      setKeyDefault(countryKey, "Country", countryPreset);
 
       const photoCol = photoUrlKey || "PhotoURL";
       if (!getVal(photoCol)) setVal(photoCol, "");
