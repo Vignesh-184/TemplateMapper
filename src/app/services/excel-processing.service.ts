@@ -262,7 +262,7 @@ export class ExcelProcessingService {
         return (rowData[key] || rowData[cleanHeaderName(key)] || "").trim();
       };
 
-      // 1. Mobile Number fallback
+      // 1. Mobile Number resolution (First priority)
       const mobCol = mobileKey || "Mobile Number";
       const fMobCol = fatherMobileKey || "Father Mobile Number";
       const mMobCol = motherMobileKey || "Mother Mobile Number";
@@ -275,7 +275,7 @@ export class ExcelProcessingService {
         }
       }
 
-      // 2. Contact Person Name & Relationship resolution
+      // 2. Contact Person Name & Relationship resolution (Second priority)
       const cpCol = contactPersonKey || "Contact Person Name";
       const relCol = relationshipKey || "Relationship";
       const fNameCol = fatherNameKey || "Father Name";
@@ -306,10 +306,12 @@ export class ExcelProcessingService {
         }
       }
 
-      // 3. Email resolution with @netkampuss.com auto-generation
+      // 3. Email resolution with @netkampuss.com auto-generation (Third priority)
       const emCol = emailKey || "Email";
       const mobileVal = getVal(mobCol);
-      if (!getVal(emCol) && mobileVal) {
+      const currentEmail = getVal(emCol);
+
+      if ((!currentEmail || !currentEmail.includes('@')) && mobileVal) {
         const baseEmail = `${mobileVal}@netkampuss.com`;
         if (!mobileEmailCount[mobileVal]) {
           mobileEmailCount[mobileVal] = 0;
@@ -320,7 +322,20 @@ export class ExcelProcessingService {
         }
       }
 
-      // 4. Default preset values for standard fields if column is present in target or mapped
+      // 4. Default preset values for standard fields (Fourth priority)
+      // Force Primary Address to "Yes" if empty or if it contains a row number (1..n)
+      const primaryAddrCol = primaryAddressKey || "Primary Address (Yes/No)";
+      const currentPrimaryAddr = getVal(primaryAddrCol);
+      if (!currentPrimaryAddr || /^\d+$/.test(currentPrimaryAddr) || currentPrimaryAddr.toLowerCase() !== "no") {
+        setVal(primaryAddrCol, "Yes");
+      }
+
+      const primaryCpCol = primaryContactPersonKey || "Primary Contact Person (Yes/No)";
+      const currentPrimaryCp = getVal(primaryCpCol);
+      if (!currentPrimaryCp || /^\d+$/.test(currentPrimaryCp) || currentPrimaryCp.toLowerCase() !== "no") {
+        setVal(primaryCpCol, "Yes");
+      }
+
       const setKeyDefault = (resolvedKey: string | undefined, fallbackKey: string, defaultValue: string) => {
         const keyToUse = resolvedKey || fallbackKey;
         if (!getVal(keyToUse)) {
@@ -332,8 +347,6 @@ export class ExcelProcessingService {
       setKeyDefault(isCurrentAcademicYearKey, "Is Current Academic Year (Yes/No)", "Yes");
       setKeyDefault(addressTypeKey, "Address Type", "Permanent");
       setKeyDefault(countryKey, "Country", "India");
-      setKeyDefault(primaryAddressKey, "Primary Address (Yes/No)", "Yes");
-      setKeyDefault(primaryContactPersonKey, "Primary Contact Person (Yes/No)", "Yes");
 
       const photoCol = photoUrlKey || "PhotoURL";
       if (!getVal(photoCol)) setVal(photoCol, "");

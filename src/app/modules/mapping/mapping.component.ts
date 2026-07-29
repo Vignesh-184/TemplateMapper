@@ -31,11 +31,11 @@ import { ERP_COLUMNS } from '../../services/mapping.service';
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs text-slate-700">
           <div class="flex items-center space-x-2 bg-white/80 p-2 rounded-lg border border-blue-100">
             <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
-            <span><strong>Email:</strong> Auto-generates <code class="bg-indigo-50 text-indigo-700 px-1 rounded">@netkampuss.com</code></span>
+            <span><strong>Email:</strong> Auto-generates <code class="bg-indigo-50 text-indigo-700 px-1 rounded">mobile@netkampuss.com</code></span>
           </div>
           <div class="flex items-center space-x-2 bg-white/80 p-2 rounded-lg border border-blue-100">
             <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span><strong>Contact Person:</strong> Auto-resolves Father/Mother</span>
+            <span><strong>Contact Person:</strong> Auto-resolves Father/Mother Name</span>
           </div>
           <div class="flex items-center space-x-2 bg-white/80 p-2 rounded-lg border border-blue-100">
             <span class="w-2 h-2 rounded-full bg-purple-500"></span>
@@ -43,7 +43,7 @@ import { ERP_COLUMNS } from '../../services/mapping.service';
           </div>
           <div class="flex items-center space-x-2 bg-white/80 p-2 rounded-lg border border-blue-100">
             <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-            <span><strong>Primary Contact:</strong> Defaults to <code class="bg-blue-50 text-blue-700 px-1 rounded">Yes</code></span>
+            <span><strong>Primary Address:</strong> Forces <code class="bg-blue-50 text-blue-700 px-1 rounded">Yes</code> (overrides 1..n)</span>
           </div>
           <div class="flex items-center space-x-2 bg-white/80 p-2 rounded-lg border border-blue-100">
             <span class="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -109,8 +109,17 @@ export class MappingComponent implements OnInit {
 
     const colsToUse = (targetHeaders && targetHeaders.length > 0) ? targetHeaders : ERP_COLUMNS;
     
+    const extraVirtualCols = [
+      "Father Name",
+      "Mother Name",
+      "Father Mobile Number",
+      "Mother Mobile Number"
+    ];
+
+    const allColsSet = new Set([...colsToUse, ...extraVirtualCols]);
+
     this.erpOptions = [
-      ...colsToUse.map(col => ({ 
+      ...Array.from(allColsSet).map(col => ({ 
         label: `${col} ${this.getRuleBadge(col) ? '⚡' : ''}`, 
         value: col 
       })),
@@ -131,12 +140,16 @@ export class MappingComponent implements OnInit {
     if (!colName) return null;
     const norm = colName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    if (norm.includes('email')) return 'Auto-generates @netkampuss.com if empty';
+    if (norm.includes('email')) return 'Auto-generates mobile@netkampuss.com if empty';
+    if (norm.includes('fathername')) return 'Mapped for Father Name resolution';
+    if (norm.includes('mothername')) return 'Mapped for Mother Name resolution';
+    if (norm.includes('fathermobile')) return 'Mapped for Father Mobile fallback';
+    if (norm.includes('mothermobile')) return 'Mapped for Mother Mobile fallback';
     if (norm.includes('contactpersonname') || norm === 'contactperson') return 'Auto-resolves Father/Mother Name';
     if (norm.includes('relationship') || norm === 'relation') return 'Auto-sets Father/Mother';
     if (norm.includes('addresstype')) return 'Defaults to Permanent';
     if (norm.includes('primarycontact')) return 'Defaults to Yes';
-    if (norm.includes('primaryaddress')) return 'Defaults to Yes';
+    if (norm.includes('primaryaddress')) return 'Forces Yes (overrides numbers 1..n)';
     if (norm.includes('dob') || norm.includes('dateofbirth')) return 'Auto-formats to DD/MM/YYYY';
     if (norm.includes('bloodgroup') || norm.includes('blood')) return 'Auto-formats to O+ / O-';
     if (norm.includes('academicyear')) return 'Defaults to 2026-2027';
