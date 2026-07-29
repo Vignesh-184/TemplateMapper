@@ -281,21 +281,47 @@ export class ExcelProcessingService {
     return { transformedData, validationErrors };
   }
 
-  async generateErpExcel(transformedData: any[]): Promise<Blob> {
+  async generateErpExcel(transformedData: any[], targetHeaders?: string[], templateFile?: File | null): Promise<Blob> {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("ERP Upload");
 
-    const exportColumns = ERP_COLUMNS.filter(col => col !== "Father Mobile Number" && col !== "Mother Mobile Number" && col !== "Mother Name" && col !== "Father Name");
-    
-    const headerRow = worksheet.addRow(exportColumns.map(col => {
-       const requiredCols = ["Admission Number", "First Name", "Email", "Mobile Number", "Academic Year", "Grade Name", "Section Name", "Is Current Academic Year (Yes/No)", "Address", "Address Type", "Country", "State", "City", "Pincode", "Contact Person Name", "Relationship"];
-       return requiredCols.includes(col) ? `${col} *` : col;
-    }));
+    if (templateFile) {
+      const arrayBuffer = await templateFile.arrayBuffer();
+      await workbook.xlsx.load(arrayBuffer);
+      const worksheet = workbook.worksheets[0];
 
-    transformedData.forEach(dataRow => {
-      const rowValues = exportColumns.map(col => dataRow[col] || "");
-      worksheet.addRow(rowValues);
-    });
+      const headerRow = worksheet.getRow(1);
+      const templateCols: string[] = [];
+      headerRow.eachCell((cell, colNumber) => {
+        const headerText = cell.text.trim().replace(/\s*\*$/, '');
+        templateCols[colNumber - 1] = headerText;
+      });
+
+      const rowCount = worksheet.rowCount;
+      for (let i = rowCount; i > 1; i--) {
+        worksheet.spliceRows(i, 1);
+      }
+
+      transformedData.forEach(dataRow => {
+        const rowValues = templateCols.map(col => dataRow[col] || "");
+        worksheet.addRow(rowValues);
+      });
+    } else {
+      const worksheet = workbook.addWorksheet("ERP Upload");
+
+      const exportColumns = targetHeaders && targetHeaders.length > 0 
+        ? targetHeaders 
+        : ERP_COLUMNS.filter(col => col !== "Father Mobile Number" && col !== "Mother Mobile Number" && col !== "Mother Name" && col !== "Father Name");
+      
+      worksheet.addRow(exportColumns.map(col => {
+         const requiredCols = ["Admission Number", "First Name", "Email", "Mobile Number", "Academic Year", "Grade Name", "Section Name", "Is Current Academic Year (Yes/No)", "Address", "Address Type", "Country", "State", "City", "Pincode", "Contact Person Name", "Relationship"];
+         return requiredCols.includes(col) ? `${col} *` : col;
+      }));
+
+      transformedData.forEach(dataRow => {
+        const rowValues = exportColumns.map(col => dataRow[col] || "");
+        worksheet.addRow(rowValues);
+      });
+    }
 
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

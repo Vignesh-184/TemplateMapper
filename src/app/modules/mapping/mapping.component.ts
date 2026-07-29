@@ -6,27 +6,29 @@ import { DropdownModule } from 'primeng/dropdown';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { FormsModule } from '@angular/forms';
+import { DataService } from '../../services/data.service';
+import { ERP_COLUMNS } from '../../services/mapping.service';
 
 @Component({
   selector: 'app-mapping',
   standalone: true,
   imports: [CommonModule, TableModule, DropdownModule, ButtonModule, TagModule, FormsModule],
   template: `
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-      <div class="flex justify-between items-center mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 space-y-6">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-6">
         <div>
-          <h2 class="text-2xl font-bold text-slate-800 mb-2">Column Mapping</h2>
-          <p class="text-slate-500">Review and adjust how your school Excel columns map to the ERP template.</p>
+          <h2 class="text-2xl font-bold text-slate-800">Column Mapping</h2>
+          <p class="text-slate-500 text-sm mt-1">Review and adjust how your school Excel columns map to your Target Template.</p>
         </div>
-        <button pButton label="Confirm & Transform" icon="pi pi-check" class="p-button-primary" (click)="confirmMapping()"></button>
+        <button pButton label="Confirm & Transform Data" icon="pi pi-check" class="p-button-primary shadow-sm" (click)="confirmMapping()"></button>
       </div>
 
       <p-table [value]="mappings()" [tableStyle]="{'min-width': '50rem'}" styleClass="p-datatable-sm p-datatable-gridlines p-datatable-striped">
         <ng-template pTemplate="header">
           <tr>
-            <th class="w-1/3">School Excel Column</th>
-            <th class="w-1/6">Match Type</th>
-            <th class="w-1/2">ERP Column (Target)</th>
+            <th class="w-1/3">Source Excel Column</th>
+            <th class="w-1/6">Match Confidence</th>
+            <th class="w-1/2">Target Template Column</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-mapping>
@@ -39,7 +41,7 @@ import { FormsModule } from '@angular/forms';
               <p-dropdown 
                 [options]="erpOptions" 
                 [(ngModel)]="mapping.mappedErpColumn" 
-                placeholder="Select ERP Column"
+                placeholder="Select Target Column"
                 [showClear]="true"
                 styleClass="w-full">
               </p-dropdown>
@@ -52,33 +54,26 @@ import { FormsModule } from '@angular/forms';
 })
 export class MappingComponent implements OnInit {
   private router = inject(Router);
+  private dataService = inject(DataService);
 
   mappings = signal<any[]>([]);
-
-  erpOptions = [
-    { label: 'Admission Number *', value: 'Admission Number' },
-    { label: 'First Name *', value: 'First Name' },
-    { label: 'Email *', value: 'Email' },
-    { label: 'Mobile Number *', value: 'Mobile Number' },
-    { label: 'Gender', value: 'Gender' },
-    { label: 'Blood Group', value: 'Blood Group' },
-    { label: 'Date of Birth', value: 'Date of Birth' },
-    { label: 'Contact Person Name *', value: 'Contact Person Name' },
-    { label: 'Father Name', value: 'Father Name' },
-    { label: 'Mother Name', value: 'Mother Name' },
-    { label: 'Grade Name *', value: 'Grade Name' },
-    { label: 'Section Name *', value: 'Section Name' },
-    { label: 'Address *', value: 'Address' },
-    { label: 'Pincode *', value: 'Pincode' },
-    { label: 'State *', value: 'State' },
-    { label: 'Ignore', value: null }
-  ];
+  erpOptions: { label: string; value: string | null }[] = [];
 
   ngOnInit() {
     const data = localStorage.getItem('mappingData');
     if (data) {
       this.mappings.set(JSON.parse(data));
     }
+
+    const targetHeadersStr = localStorage.getItem('targetHeaders');
+    const targetHeaders: string[] = targetHeadersStr ? JSON.parse(targetHeadersStr) : this.dataService.getTargetHeaders();
+
+    const colsToUse = (targetHeaders && targetHeaders.length > 0) ? targetHeaders : ERP_COLUMNS;
+    
+    this.erpOptions = [
+      ...colsToUse.map(col => ({ label: col, value: col })),
+      { label: '-- Ignore Column --', value: null }
+    ];
   }
 
   getMatchSeverity(type: string): any {
@@ -92,7 +87,6 @@ export class MappingComponent implements OnInit {
 
   confirmMapping() {
     localStorage.setItem('confirmedMapping', JSON.stringify(this.mappings()));
-    // Normally we'd call the transform API here and then redirect
     this.router.navigate(['/preview']);
   }
 }

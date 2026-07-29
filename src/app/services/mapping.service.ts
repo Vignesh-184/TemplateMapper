@@ -68,7 +68,6 @@ export interface MappedColumn {
 })
 export class MappingService {
   private normalizedSynonyms: Record<string, string> = {};
-  private fuse: Fuse<{ id: string; normalized: string }>;
 
   constructor() {
     for (const [erpCol, synonyms] of Object.entries(SYNONYMS)) {
@@ -76,37 +75,38 @@ export class MappingService {
         this.normalizedSynonyms[normalizeHeader(synonym)] = erpCol;
       }
     }
+  }
 
-    const erpColObjects = ERP_COLUMNS.map(col => ({
+  matchColumns(headers: string[], customTargetHeaders?: string[]): MappedColumn[] {
+    const targetCols = (customTargetHeaders && customTargetHeaders.length > 0) ? customTargetHeaders : ERP_COLUMNS;
+    const result: MappedColumn[] = [];
+
+    const targetObjects = targetCols.map(col => ({
       id: col,
       normalized: normalizeHeader(col)
     }));
 
-    this.fuse = new Fuse(erpColObjects, {
+    const fuseInstance = new Fuse(targetObjects, {
       keys: ["normalized"],
       threshold: 0.3,
       includeScore: true,
     });
-  }
-
-  matchColumns(headers: string[]): MappedColumn[] {
-    const result: MappedColumn[] = [];
 
     for (const header of headers) {
       const normalized = normalizeHeader(header);
       
-      const exactMatch = ERP_COLUMNS.find(col => normalizeHeader(col) === normalized);
+      const exactMatch = targetCols.find(col => normalizeHeader(col) === normalized);
       if (exactMatch) {
         result.push({ originalHeader: header, mappedErpColumn: exactMatch, matchType: "exact" });
         continue;
       }
 
-      if (this.normalizedSynonyms[normalized]) {
+      if (this.normalizedSynonyms[normalized] && targetCols.includes(this.normalizedSynonyms[normalized])) {
         result.push({ originalHeader: header, mappedErpColumn: this.normalizedSynonyms[normalized], matchType: "synonym" });
         continue;
       }
 
-      const fuzzyMatches = this.fuse.search(normalized);
+      const fuzzyMatches = fuseInstance.search(normalized);
       if (fuzzyMatches.length > 0 && fuzzyMatches[0].score! < 0.4) {
         result.push({ originalHeader: header, mappedErpColumn: fuzzyMatches[0].item.id, matchType: "fuzzy" });
         continue;
